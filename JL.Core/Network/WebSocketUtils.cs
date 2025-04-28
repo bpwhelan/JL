@@ -1,5 +1,6 @@
 using System.Net.WebSockets;
 using System.Text;
+using System.Text.Json;
 using JL.Core.Config;
 using JL.Core.Statistics;
 using JL.Core.Utilities;
@@ -56,7 +57,6 @@ public static class WebSocketUtils
                             {
                                 return;
                             }
-
                             if (result.MessageType is WebSocketMessageType.Text)
                             {
                                 using MemoryStream memoryStream = new();
@@ -69,9 +69,32 @@ public static class WebSocketUtils
                                 }
 
                                 _ = memoryStream.Seek(0, SeekOrigin.Begin);
-
                                 string text = s_utf8NoBom.GetString(memoryStream.ToArray());
-                                _ = Task.Run(() => Utils.Frontend.CopyFromWebSocket(text), cancellationToken).ConfigureAwait(false);
+
+                                if (text.StartsWith('{'))
+                                {
+                                    try
+                                    {
+                                        using JsonDocument document = JsonDocument.Parse(text);
+                                        if (document.RootElement.TryGetProperty("sentence", out JsonElement sentenceElement))
+                                        {
+                                            string sentence = sentenceElement.GetString() ?? string.Empty;
+                                            _ = Task.Run(() => Utils.Frontend.CopyFromWebSocket(sentence), cancellationToken).ConfigureAwait(false);
+                                        }
+                                        else
+                                        {
+                                            _ = Task.Run(() => Utils.Frontend.CopyFromWebSocket(text), cancellationToken).ConfigureAwait(false);
+                                        }
+                                    }
+                                    catch (JsonException)
+                                    {
+                                        _ = Task.Run(() => Utils.Frontend.CopyFromWebSocket(text), cancellationToken).ConfigureAwait(false);
+                                    }
+                                }
+                                else
+                                {
+                                    _ = Task.Run(() => Utils.Frontend.CopyFromWebSocket(text), cancellationToken).ConfigureAwait(false);
+                                }
                             }
                         }
                         catch (WebSocketException webSocketException)
